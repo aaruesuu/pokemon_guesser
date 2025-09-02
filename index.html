@@ -30,7 +30,7 @@
         <div id="input-area" class="flex gap-2 mb-6">
             <!-- ★ プレースホルダーを日本語に変更 -->
             <input type="text" id="guess-input" placeholder="ポケモンのなまえを入力 (例: ピカチュウ)" class="flex-grow bg-gray-800 border-2 border-gray-700 rounded-lg p-3 text-lg focus:outline-none focus:border-blue-500 transition">
-            <button id="guess-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300">推測！</button>
+            <button id="guess-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300">search</button>
         </div>
 
         <div id="message-area" class="text-center h-8 mb-4"></div>
@@ -57,7 +57,7 @@
         const resultHistory = document.getElementById('result-history');
         const resultHeader = document.getElementById('result-header');
 
-        // ★★★ 新規追加：日本語名と英語名の対応表（一部抜粋） ★★★
+        // ★★★ 新規追加：日本語名と英語名の対応表 ★★★
         // 実際には905匹分のデータが含まれています
         const pokemonNameMap = {
             'フシギダネ': 'bulbasaur', 'フシギソウ': 'ivysaur', 'フシギバナ': 'venusaur',
@@ -380,25 +380,18 @@
 
         const POKEAPI_BASE_URL = 'https://pokeapi.co/api/v2/';
 
-        function getEvolutionCount(chainData, pokemonName) {
-            let evolutionCount = 0;
-            let currentStage = chainData.chain;
-
+        function getEvolutionCount(chainData, speciesName) {
             function findPokemon(stage, count) {
-                if (stage.species.name === pokemonName) {
+                if (stage.species.name === speciesName) {
                     return count;
                 }
                 for (const nextStage of stage.evolves_to) {
                     const result = findPokemon(nextStage, count + 1);
-                    if (result !== null) {
-                        return result;
-                    }
+                    if (result !== null) return result;
                 }
                 return null;
             }
-
-            const finalCount = findPokemon(currentStage, 0);
-            return finalCount !== null ? finalCount : 0;
+            return findPokemon(chainData.chain, 0) ?? 0;
         }
         
         async function fetchPokemonData(pokemonIdentifier) {
