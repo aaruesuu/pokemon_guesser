@@ -7,16 +7,16 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        body {
-            font-family: 'Inter', sans-serif;
-        }
-        .result-row {
-            animation: fadeIn 0.5s ease-out forwards;
-        }
+        body { font-family: 'Inter', sans-serif; }
+        .result-row { animation: fadeIn 0.5s ease-out forwards; }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
+        #suggestions-box::-webkit-scrollbar { width: 8px; }
+        #suggestions-box::-webkit-scrollbar-track { background: #4a5568; }
+        #suggestions-box::-webkit-scrollbar-thumb { background: #718096; border-radius: 4px; }
+        #suggestions-box::-webkit-scrollbar-thumb:hover { background: #a0aec0; }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
@@ -27,38 +27,35 @@
             <p class="text-gray-400 mt-2">ポケモンを推測して5回以内に当てよう！</p>
         </header>
 
-        <div id="input-area" class="flex gap-2 mb-6">
-            <!-- ★ プレースホルダーを日本語に変更 -->
-            <input type="text" id="guess-input" placeholder="ポケモンのなまえを入力 (例: ピカチュウ)" class="flex-grow bg-gray-800 border-2 border-gray-700 rounded-lg p-3 text-lg focus:outline-none focus:border-blue-500 transition">
-            <button id="guess-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300">search</button>
+        <div id="game-controls" class="relative mb-6">
+            <div id="input-area" class="flex gap-2">
+                <input type="text" id="guess-input" placeholder="ポケモンのなまえを入力 (例: ピカチュウ)" class="flex-grow bg-gray-800 border-2 border-gray-700 rounded-lg p-3 text-lg focus:outline-none focus:border-blue-500 transition" autocomplete="off">
+                <button id="guess-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300">推測！</button>
+            </div>
+            <div id="suggestions-box" class="absolute hidden w-full max-h-60 overflow-y-auto bg-gray-700 rounded-lg mt-1 z-10 border border-gray-600"></div>
+            <button id="retry-button" class="hidden w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300">もう一度遊ぶ</button>
         </div>
 
         <div id="message-area" class="text-center h-8 mb-4"></div>
 
         <div id="result-header" class="hidden grid grid-cols-8 gap-2 text-center font-bold text-xs text-gray-400 mb-2 px-2">
-            <span>#</span>
-            <span>ポケモン</span>
-            <span>世代</span>
-            <span>タイプ1</span>
-            <span>タイプ2</span>
-            <span>高さ</span>
-            <span>重さ</span>
-            <span>進化回数</span>
+            <span>#</span><span>ポケモン</span><span>世代</span><span>タイプ1</span><span>タイプ2</span><span>高さ</span><span>重さ</span><span>進化回数</span>
         </div>
 
         <div id="result-history" class="space-y-2"></div>
     </div>
 
     <script>
-        // DOM要素の取得
         const guessInput = document.getElementById('guess-input');
         const guessButton = document.getElementById('guess-button');
         const messageArea = document.getElementById('message-area');
         const resultHistory = document.getElementById('result-history');
         const resultHeader = document.getElementById('result-header');
+        const gameControls = document.getElementById('game-controls');
+        const inputArea = document.getElementById('input-area');
+        const retryButton = document.getElementById('retry-button');
+        const suggestionsBox = document.getElementById('suggestions-box');
 
-        // ★★★ 新規追加：日本語名と英語名の対応表 ★★★
-        // 実際には905匹分のデータが含まれています
         const pokemonNameMap = {
             'フシギダネ': 'bulbasaur', 'フシギソウ': 'ivysaur', 'フシギバナ': 'venusaur',
             'ヒトカゲ': 'charmander', 'リザード': 'charmeleon', 'リザードン': 'charizard',
@@ -374,12 +371,119 @@
 
         };
 
+        const allPokemonNames = Object.keys(pokemonNameMap);
+
         let correctPokemon = null;
         let guessesLeft = 5;
         let gameOver = false;
-
         const POKEAPI_BASE_URL = 'https://pokeapi.co/api/v2/';
 
+        function hiraToKana(str) {
+            return str.replace(/[\u3041-\u3096]/g, function(match) {
+                const charCode = match.charCodeAt(0) + 0x60;
+                return String.fromCharCode(charCode);
+            });
+        }
+
+        async function initGame() {
+            messageArea.textContent = '正解のポケモンを読み込み中...';
+            const randomId = Math.floor(Math.random() * 905) + 1;
+            correctPokemon = await fetchPokemonData(randomId);
+            
+            if (correctPokemon) {
+                console.log('正解:', correctPokemon);
+                messageArea.textContent = `ポケモンの名前を入力してください。(残り: ${guessesLeft}回)`;
+            } else {
+                messageArea.textContent = 'ゲームの開始に失敗しました。リロードしています...';
+                setTimeout(initGame, 1000);
+            }
+        }
+        
+        function resetGame() {
+            guessesLeft = 5;
+            gameOver = false;
+            resultHistory.innerHTML = '';
+            resultHeader.classList.add('hidden');
+            messageArea.textContent = '';
+            retryButton.classList.add('hidden');
+            inputArea.classList.remove('hidden');
+            initGame();
+        }
+
+        async function handleGuess() {
+            if (gameOver) return;
+            let guessNameJa = hiraToKana(guessInput.value.trim());
+            if (!guessNameJa) return;
+
+            suggestionsBox.classList.add('hidden');
+
+            const guessNameEn = pokemonNameMap[guessNameJa];
+            if (!guessNameEn) {
+                messageArea.textContent = `「${guessNameJa}」というポケモンは見つかりませんでした。`;
+                return;
+            }
+            
+            guessButton.disabled = true;
+            messageArea.textContent = `${guessNameJa}の情報を調べています...`;
+            const guessedPokemon = await fetchPokemonData(guessNameEn);
+
+            if (!guessedPokemon) {
+                messageArea.textContent = `「${guessNameJa}」のデータ取得に失敗しました。`;
+                guessButton.disabled = false; return;
+            }
+            
+            guessesLeft--;
+            const comparison = comparePokemon(guessedPokemon, correctPokemon);
+            renderResult(guessedPokemon, comparison);
+
+            if (guessedPokemon.id === correctPokemon.id) {
+                messageArea.textContent = `正解！おめでとう！答えは ${correctPokemon.name} でした！`;
+                endGame();
+            } else if (guessesLeft === 0) {
+                messageArea.textContent = `残念！ゲームオーバー。正解は ${correctPokemon.name} でした。`;
+                endGame();
+            } else {
+                messageArea.textContent = `ポケモンの名前を入力してください。(残り: ${guessesLeft}回)`;
+            }
+            
+            guessInput.value = '';
+            guessButton.disabled = false;
+        }
+
+        function endGame() {
+            gameOver = true;
+            inputArea.classList.add('hidden');
+            retryButton.classList.remove('hidden');
+        }
+
+        function handleInput() {
+            const inputText = guessInput.value.trim();
+            if (inputText.length === 0) {
+                suggestionsBox.classList.add('hidden');
+                return;
+            }
+            const inputTextKana = hiraToKana(inputText);
+            const suggestions = allPokemonNames.filter(name => name.startsWith(inputTextKana)).slice(0, 7);
+
+            suggestionsBox.innerHTML = '';
+            if (suggestions.length > 0) {
+                suggestions.forEach(name => {
+                    const suggestionItem = document.createElement('div');
+                    suggestionItem.textContent = name;
+                    suggestionItem.className = 'p-3 hover:bg-gray-600 cursor-pointer';
+                    suggestionItem.addEventListener('click', () => {
+                        guessInput.value = name;
+                        suggestionsBox.classList.add('hidden');
+                        guessInput.focus();
+                    });
+                    suggestionsBox.appendChild(suggestionItem);
+                });
+                suggestionsBox.classList.remove('hidden');
+            } else {
+                suggestionsBox.classList.add('hidden');
+            }
+        }
+        
         function getEvolutionCount(chainData, speciesName) {
             function findPokemon(stage, count) {
                 if (stage.species.name === speciesName) {
@@ -400,102 +504,32 @@
                 const pokemonRes = await fetch(`${POKEAPI_BASE_URL}pokemon/${identifier}`);
                 if (!pokemonRes.ok) throw new Error('Pokemon not found');
                 const pokemonData = await pokemonRes.json();
-
                 const speciesRes = await fetch(pokemonData.species.url);
                 const speciesData = await speciesRes.json();
-
                 const evolutionChainRes = await fetch(speciesData.evolution_chain.url);
                 const evolutionChainData = await evolutionChainRes.json();
-                
-                const evolutionCount = getEvolutionCount(evolutionChainData, pokemonData.name);
-
+                const evolutionCount = getEvolutionCount(evolutionChainData, speciesData.name);
                 const name = speciesData.names.find(n => n.language.name === 'ja-Hrkt')?.name || pokemonData.name;
-                const generationUrl = speciesData.generation.url;
-                const generationId = parseInt(generationUrl.split('/').slice(-2, -1)[0]);
                 
-                const typeNameMap = {
-                    "normal": "ノーマル", "fire": "ほのお", "water": "みず", "grass": "くさ", "electric": "でんき",
-                    "ice": "こおり", "fighting": "かくとう", "poison": "どく", "ground": "じめん", "flying": "ひこう",
-                    "psychic": "エスパー", "bug": "むし", "rock": "いわ", "ghost": "ゴースト", "dragon": "ドラゴン",
-                    "dark": "あく", "steel": "はがね", "fairy": "フェアリー"
-                };
+                let generationId = 8;
+                if (speciesData.generation) {
+                    const generationUrl = speciesData.generation.url;
+                    generationId = parseInt(generationUrl.split('/').slice(-2, -1)[0]);
+                }
+                
+                const typeNameMap = {"normal":"ノーマル","fire":"ほのお","water":"みず","grass":"くさ","electric":"でんき","ice":"こおり","fighting":"かくとう","poison":"どく","ground":"じめん","flying":"ひこう","psychic":"エスパー","bug":"むし","rock":"いわ","ghost":"ゴースト","dragon":"ドラゴン","dark":"あく","steel":"はがね","fairy":"フェアリー"};
                 const japaneseTypes = pokemonData.types.map(t => typeNameMap[t.type.name] || t.type.name);
 
                 return {
-                    id: pokemonData.id,
-                    name: name,
-                    generation: generationId,
-                    type1: japaneseTypes[0] || 'なし',
-                    type2: japaneseTypes[1] || 'なし',
-                    height: pokemonData.height / 10,
-                    weight: pokemonData.weight / 10,
-                    sprite: pokemonData.sprites.front_default,
-                    evolutionCount: evolutionCount
+                    id: pokemonData.id, name: name, generation: generationId,
+                    type1: japaneseTypes[0] || 'なし', type2: japaneseTypes[1] || 'なし',
+                    height: pokemonData.height / 10, weight: pokemonData.weight / 10,
+                    sprite: pokemonData.sprites.front_default, evolutionCount: evolutionCount
                 };
             } catch (error) {
                 console.error("Data fetch error:", error);
                 return null;
             }
-        }
-
-        async function initGame() {
-            messageArea.textContent = '正解のポケモンを読み込み中...';
-            const randomId = Math.floor(Math.random() * 905) + 1;
-            correctPokemon = await fetchPokemonData(randomId);
-            
-            if (correctPokemon) {
-                console.log('正解:', correctPokemon);
-                messageArea.textContent = `ポケモンの名前を入力してください。(残り: ${guessesLeft}回)`;
-            } else {
-                messageArea.textContent = 'ゲームの開始に失敗しました。リロードしてください。';
-            }
-        }
-
-        async function handleGuess() {
-            if (gameOver) return;
-            
-            // ★ 入力された日本語名を取得
-            const guessNameJa = guessInput.value.trim();
-            if (!guessNameJa) return;
-
-            // ★ 日本語名から英語名に変換
-            const guessNameEn = pokemonNameMap[guessNameJa];
-
-            // ★ 変換できなかった場合（対応表に名前がない場合）のエラー処理
-            if (!guessNameEn) {
-                messageArea.textContent = `「${guessNameJa}」というポケモンは見つかりませんでした。`;
-                return;
-            }
-            
-            guessButton.disabled = true;
-            messageArea.textContent = `${guessNameJa}の情報を調べています...`;
-
-            // ★ 変換した英語名を使ってデータを取得
-            const guessedPokemon = await fetchPokemonData(guessNameEn);
-
-            if (!guessedPokemon) {
-                // 基本的には上のチェックで弾かれるが、念のため
-                messageArea.textContent = `「${guessNameJa}」のデータ取得に失敗しました。`;
-                guessButton.disabled = false;
-                return;
-            }
-            
-            guessesLeft--;
-            const comparison = comparePokemon(guessedPokemon, correctPokemon);
-            renderResult(guessedPokemon, comparison);
-
-            if (guessedPokemon.id === correctPokemon.id) {
-                messageArea.textContent = `正解！おめでとう！答えは ${correctPokemon.name} でした！`;
-                gameOver = true;
-            } else if (guessesLeft === 0) {
-                messageArea.textContent = `残念！ゲームオーバー。正解は ${correctPokemon.name} でした。`;
-                gameOver = true;
-            } else {
-                messageArea.textContent = `ポケモンの名前を入力してください。(残り: ${guessesLeft}回)`;
-            }
-            
-            guessInput.value = '';
-            guessButton.disabled = false;
         }
 
         function comparePokemon(guessed, correct) {
@@ -520,26 +554,34 @@
             resultHeader.classList.remove('hidden');
             const row = document.createElement('div');
             row.className = 'result-row grid grid-cols-8 gap-2 items-center text-center bg-gray-800 p-2 rounded-lg text-sm';
-            
-            row.innerHTML = `
-                <div class="flex items-center justify-center h-full"><img src="${pokemon.sprite}" alt="${pokemon.name}" class="w-10 h-10"></div>
-                <div class="font-bold">${pokemon.name}</div>
-                <div class="${comparison.generation} rounded p-2">${pokemon.generation}</div>
-                <div class="${comparison.type1} rounded p-2">${pokemon.type1}</div>
-                <div class="${comparison.type2} rounded p-2">${pokemon.type2}</div>
-                <div class="bg-gray-700 rounded p-2">${pokemon.height}m ${comparison.height}</div>
-                <div class="bg-gray-700 rounded p-2">${pokemon.weight}kg ${comparison.weight}</div>
-                <div class="${comparison.evolutionCount} rounded p-2">${pokemon.evolutionCount}</div>
-            `;
-            
+            row.innerHTML = `<div class="flex items-center justify-center h-full"><img src="${pokemon.sprite}" alt="${pokemon.name}" class="w-10 h-10"></div><div class="font-bold">${pokemon.name}</div><div class="${comparison.generation} rounded p-2">${pokemon.generation}</div><div class="${comparison.type1} rounded p-2">${pokemon.type1}</div><div class="${comparison.type2} rounded p-2">${pokemon.type2}</div><div class="bg-gray-700 rounded p-2">${pokemon.height}m ${comparison.height}</div><div class="bg-gray-700 rounded p-2">${pokemon.weight}kg ${comparison.weight}</div><div class="${comparison.evolutionCount} rounded p-2">${pokemon.evolutionCount}</div>`;
             resultHistory.insertAdjacentElement('afterbegin', row);
         }
 
         guessButton.addEventListener('click', handleGuess);
-        guessInput.addEventListener('keyup', (event) => {
-            if (event.key === 'Enter') handleGuess();
+        
+        // ★ 変更点: keyupをkeydownに変更し、IME変換中のEnterキーを無視するように修正
+        guessInput.addEventListener('keydown', (event) => {
+            // event.isComposingがtrueの場合、文字変換の途中。
+            // この状態でEnterが押されても、推測処理は実行しない。
+            if (event.isComposing && event.key === 'Enter') {
+                return;
+            }
+            // 変換が確定した状態でのEnterキーでのみ、推測を実行する。
+            if (!event.isComposing && event.key === 'Enter') {
+                handleGuess();
+            }
         });
+        
+        retryButton.addEventListener('click', resetGame);
+        guessInput.addEventListener('input', handleInput);
 
+        document.addEventListener('click', (event) => {
+            if (!gameControls.contains(event.target)) {
+                suggestionsBox.classList.add('hidden');
+            }
+        });
+        
         initGame();
     </script>
 </body>
